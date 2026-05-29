@@ -1,0 +1,668 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>The Unintentional Villain -SkipCourse</title>
+    <style>
+      body {
+        margin: 0;
+        background-color: #0b0711;
+        color: #e0e0e0;
+        font-family: "Courier New", Courier, monospace;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        height: 100vh;
+        overflow: hidden;
+        user-select: none;
+      }
+      #game-container {
+        position: relative;
+        width: 800px;
+        height: 500px;
+        background: #000;
+        border: 4px solid #633b94;
+        box-shadow: 0 0 30px rgba(114, 47, 186, 0.4);
+        border-radius: 4px;
+        cursor: none; /* Hides default cursor inside the game window */
+      }
+      canvas {
+        display: block;
+        width: 100%;
+        height: 100%;
+      }
+      #hud {
+        position: absolute;
+        top: 0;
+        left: 0;
+        width: 100%;
+        padding: 15px;
+        box-sizing: border-box;
+        display: flex;
+        justify-content: space-between;
+        font-size: 18px;
+        font-weight: bold;
+        text-shadow: 2px 2px 4px #000;
+        pointer-events: none; /* Allows clicking through HUD elements */
+      }
+      .hud-element {
+        background: rgba(17, 10, 26, 0.75);
+        padding: 8px 15px;
+        border: 1px solid #4a2775;
+        border-radius: 4px;
+      }
+      #hp-display {
+        color: #ff3333;
+      }
+      #wave-display {
+        color: #33fff3;
+      }
+      #score-display {
+        color: #ffcc00;
+      }
+
+      #game-over-screen {
+        position: absolute;
+        top: 0;
+        left: 0;
+        width: 100%;
+        height: 100%;
+        background: rgba(10, 5, 15, 0.9);
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        opacity: 0;
+        pointer-events: none;
+        transition: opacity 0.5s ease;
+      }
+      #game-over-screen.active {
+        opacity: 1;
+        pointer-events: auto;
+        cursor: default;
+      }
+      .restart-btn {
+        background: #793fa3;
+        color: white;
+        border: 2px solid #aa66e3;
+        padding: 12px 30px;
+        font-size: 18px;
+        font-weight: bold;
+        font-family: inherit;
+        cursor: pointer;
+        margin-top: 20px;
+      }
+      .restart-btn:hover {
+        background: #934fc4;
+      }
+    </style>
+  </head>
+  <body>
+    <h1
+      style="
+        margin: 0 0 10px 0;
+        color: #a166e3;
+        font-size: 24px;
+        letter-spacing: 3px;
+      "
+    >
+      THE UNINTENTIONAL VILLAIN: LAIR DEFENSE
+    </h1>
+
+    <div id="game-container">
+      <canvas id="fpsCanvas" width="800" height="500"></canvas>
+
+      <div id="hud">
+        <div id="hp-display" class="hud-element">LAIR CORE: 100</div>
+        <div id="wave-display" class="hud-element">WAVE: 1</div>
+        <div id="score-display" class="hud-element">KILLS: 0</div>
+      </div>
+
+      <div id="game-over-screen" id="gameOverScreen">
+        <h2 style="color: #ff3333; font-size: 40px; margin: 0">
+          DUNGEON BREACHED
+        </h2>
+        <p style="color: #aaa; margin: 10px 0">
+          The adventurers pillaged your hoard.
+        </p>
+        <p id="final-stats" style="color: #ffcc00"></p>
+        <button class="restart-btn" onclick="resetGame()">
+          RE-AWAKEN BOSS
+        </button>
+      </div>
+    </div>
+
+    <p style="color: #5d4d70; font-size: 12px; margin-top: 10px">
+      Aim with MOUSE. Left-Click to fire VOID BURST.
+    </p>
+
+    <script>
+      const canvas = document.getElementById("fpsCanvas");
+      const ctx = canvas.getContext("2d");
+      const gameOverScreen = document.getElementById("game-over-screen");
+
+      const quiz = [
+        {
+          question: "{{QUESTION_0}}",
+          options: [
+            "{{QUESTION_0_ANSWER_1}}",
+            "{{QUESTION_0_ANSWER_2}}",
+            "{{QUESTION_0_ANSWER_3}}",
+            "{{QUESTION_0_ANSWER_4}}",
+          ],
+          answer: "{{QUESTION_0_ANSWER_1}}",
+        },
+        {
+          question: "{{QUESTION_1}}",
+          options: [
+            "{{QUESTION_1_ANSWER_1}}",
+            "{{QUESTION_1_ANSWER_2}}",
+            "{{QUESTION_1_ANSWER_3}}",
+            "{{QUESTION_1_ANSWER_4}}",
+          ],
+          answer: "{{QUESTION_1_ANSWER_1}}",
+        },
+        {
+          question: "{{QUESTION_2}}",
+          options: [
+            "{{QUESTION_2_ANSWER_1}}",
+            "{{QUESTION_2_ANSWER_2}}",
+            "{{QUESTION_2_ANSWER_3}}",
+            "{{QUESTION_2_ANSWER_4}}",
+          ],
+          answer: "{{QUESTION_2_ANSWER_1}}",
+        },
+      ];
+
+      // Game Tracking State
+      let game = {
+        bossHp: 100,
+        score: 0,
+        wave: 1,
+        active: true,
+        paused: false,
+        mouseX: 400,
+        mouseY: 250,
+        heroes: [],
+        projectiles: [],
+        particles: [],
+        texts: [],
+        spawnTimer: 0,
+        spawnInterval: 120, // Frames between hero spawns
+        questionIndex: 0,
+      };
+
+      // Hero blueprints
+      const HERO_TYPES = [
+        {
+          name: "Squire",
+          hp: 30,
+          speed: 0.4,
+          color: "#3498db",
+          size: 30,
+          baseScore: 10,
+        },
+        {
+          name: "Knight",
+          hp: 65,
+          speed: 0.25,
+          color: "#95a5a6",
+          size: 40,
+          baseScore: 20,
+        },
+        {
+          name: "Thief",
+          hp: 20,
+          speed: 0.7,
+          color: "#e67e22",
+          size: 22,
+          baseScore: 15,
+        },
+      ];
+
+      // Track mouse position inside canvas coordinates
+      canvas.addEventListener("mousemove", (e) => {
+        const rect = canvas.getBoundingClientRect();
+        game.mouseX = e.clientX - rect.left;
+        game.mouseY = e.clientY - rect.top;
+      });
+
+      // Fire spell on click
+      canvas.addEventListener("mousedown", (e) => {
+        if (!game.active || game.paused) return;
+
+        // Trigger projectile from bottom center (Boss perspective)
+        game.projectiles.push({
+          startX: canvas.width / 2,
+          startY: canvas.height,
+          currentX: canvas.width / 2,
+          currentY: canvas.height,
+          targetX: game.mouseX,
+          targetY: game.mouseY,
+          progress: 0,
+          speed: 0.08, // Animation travel percentage per frame
+        });
+
+        // Quick recoil screen shake effect placeholder logic can scale here
+      });
+
+      function spawnHero() {
+        // Pick a random hero type, scale attributes mildly by current wave
+        const template =
+          HERO_TYPES[Math.floor(Math.random() * HERO_TYPES.length)];
+
+        game.heroes.push({
+          name: template.name,
+          maxHp: template.hp + game.wave * 5,
+          hp: template.hp + game.wave * 5,
+          speed: template.speed + game.wave * 0.02,
+          color: template.color,
+          baseSize: template.size,
+          scoreValue: template.baseScore,
+
+          // Position vectors: Z dictates depth (100 = background horizon, 0 = hit player)
+          z: 100,
+          xOffset: Math.random() * 160 - 80, // Spread them left/right along corridor axis
+        });
+      }
+
+      function createExplosion(x, y, color) {
+        for (let i = 0; i < 12; i++) {
+          game.particles.push({
+            x: x,
+            y: y,
+            vx: (Math.random() - 0.5) * 6,
+            vy: (Math.random() - 0.5) * 6,
+            radius: Math.random() * 4 + 2,
+            alpha: 1,
+            decay: Math.random() * 0.03 + 0.02,
+            color: color,
+          });
+        }
+      }
+
+      function spawnFloatingText(text, x, y, color) {
+        game.texts.push({
+          text: text,
+          x: x,
+          y: y,
+          vy: -1,
+          alpha: 1,
+          color: color,
+        });
+      }
+
+      function checkHit(proj) {
+        if (game.paused) return false;
+
+        // Check collisions against heroes matching projected target zone
+        for (let i = game.heroes.length - 1; i >= 0; i--) {
+          let h = game.heroes[i];
+
+          // Calculate actual screen rendering projection geometry of the target
+          let t = (100 - h.z) / 100;
+          let cx = canvas.width / 2 + h.xOffset * (1 + t * 4);
+          let cy = canvas.height / 2 + 20 + t * 200;
+          let currentSize = h.baseSize * (0.2 + t * 1.8);
+
+          // Simple circular radius collision detection
+          let dist = Math.hypot(
+            proj.targetX - cx,
+            proj.targetY - (cy - currentSize / 2),
+          );
+          if (dist < currentSize / 1.5) {
+            game.paused = true;
+            game.pendingHit = {
+              heroIndex: i,
+              cx,
+              cy,
+              currentSize,
+              questionIndex: game.questionIndex,
+              q: quiz[game.questionIndex],
+            };
+
+            const questionDiv = document.createElement("div");
+            questionDiv.id = "active-question";
+            questionDiv.style.position = "absolute";
+            questionDiv.style.left = `${cx}px`;
+            questionDiv.style.top = `${cy}px`;
+            questionDiv.style.backgroundColor = "rgba(0, 0, 0, 0.9)";
+            questionDiv.style.border = "2px solid #a166e3";
+            questionDiv.style.color = "#fff";
+            questionDiv.style.padding = "15px";
+            questionDiv.style.borderRadius = "5px";
+            questionDiv.style.transform = "translate(-50%, -50%)";
+            questionDiv.style.zIndex = "100";
+            questionDiv.style.minWidth = "200px";
+            questionDiv.style.pointerEvents = "auto";
+
+            let optionsHtml = quiz[game.questionIndex].options
+              .map(
+                (option, index) =>
+                  `<button onclick="handleAnswer(${index})" style="display:block;margin-top:8px;width:100%;padding:8px;cursor:pointer;background:#4a2775;color:white;border:none;border-radius:4px;">${option}</button>`,
+              )
+              .join("");
+
+            questionDiv.innerHTML = `<strong style="display:block;margin-bottom:10px;text-align:center;">${quiz[game.questionIndex].question}</strong>${optionsHtml}`;
+
+            document.getElementById("game-container").appendChild(questionDiv);
+            game.questionIndex = (game.questionIndex + 1) % quiz.length;
+            return true; // Register projectile impact interception
+          }
+        }
+        return false;
+      }
+
+      function handleAnswer(index) {
+        if (!game.pendingHit) return;
+
+        const p = game.pendingHit;
+        const correct = p.q.options[index] === p.q.answer;
+
+        let i = p.heroIndex;
+        let h = game.heroes[i];
+
+        if (h) {
+          if (correct) {
+            h.hp = 0;
+            createExplosion(p.cx, p.cy - p.currentSize / 2, "#bf33ff");
+            spawnFloatingText(
+              "INSTA-KILL!",
+              p.cx,
+              p.cy - p.currentSize - 10,
+              "#ffcc00",
+            );
+
+            createExplosion(p.cx, p.cy - p.currentSize / 2, h.color);
+            game.score += h.scoreValue;
+            game.heroes.splice(i, 1);
+
+            // Check wave progression thresholds
+            if (game.score > 0 && game.score % 150 === 0) {
+              game.wave++;
+              game.spawnInterval = Math.max(40, game.spawnInterval - 15);
+              spawnFloatingText(
+                `WAVE ${game.wave} COMMENCING`,
+                canvas.width / 2,
+                120,
+                "#33fff3",
+              );
+            }
+          } else {
+            spawnFloatingText(
+              "MISSED!",
+              p.cx,
+              p.cy - p.currentSize - 10,
+              "#ff66cc",
+            );
+          }
+        }
+
+        const activeQ = document.getElementById("active-question");
+        if (activeQ) activeQ.remove();
+        game.paused = false;
+        game.pendingHit = null;
+      }
+
+      function update() {
+        if (!game.active || game.paused) return;
+
+        // Spawning timeline intervals
+        game.spawnTimer++;
+        if (game.spawnTimer >= game.spawnInterval) {
+          spawnHero();
+          game.spawnTimer = 0;
+        }
+
+        // Progress heroes forward down the hallway (Z closer to 0)
+        for (let i = game.heroes.length - 1; i >= 0; i--) {
+          let h = game.heroes[i];
+          h.z -= h.speed;
+
+          if (h.z <= 2) {
+            // Hero reached your throne platform! Inflict Core damage
+            game.bossHp -= 15;
+            spawnFloatingText(
+              "-15 CORE",
+              canvas.width / 2,
+              canvas.height - 100,
+              "#ff3333",
+            );
+            game.heroes.splice(i, 1);
+
+            if (game.bossHp <= 0) {
+              game.bossHp = 0;
+              game.active = false;
+              document.getElementById("final-stats").innerText =
+                `Waves Survived: ${game.wave} | Intruders Slain: ${game.score / 10}`;
+              gameOverScreen.classList.add("active");
+            }
+          }
+        }
+
+        // Update real-time trajectory vector calculations for spell bursts
+        for (let i = game.projectiles.length - 1; i >= 0; i--) {
+          let p = game.projectiles[i];
+          p.progress += p.speed;
+
+          p.currentX = p.startX + (p.targetX - p.startX) * p.progress;
+          p.currentY = p.startY + (p.targetY - p.startY) * p.progress;
+
+          if (p.progress >= 1.0) {
+            checkHit(p);
+            game.projectiles.splice(i, 1);
+          }
+        }
+
+        // Update decorative particles physics elements
+        for (let i = game.particles.length - 1; i >= 0; i--) {
+          let p = game.particles[i];
+          p.x += p.vx;
+          p.y += p.vy;
+          p.alpha -= p.decay;
+          if (p.alpha <= 0) game.particles.splice(i, 1);
+        }
+
+        // Update active fading text instances
+        for (let i = game.texts.length - 1; i >= 0; i--) {
+          let t = game.texts[i];
+          t.y += t.vy;
+          t.alpha -= 0.02;
+          if (t.alpha <= 0) game.texts.splice(i, 1);
+        }
+
+        // Live synchronization to standard DOM text layers
+        document.getElementById("hp-display").innerText =
+          `LAIR CORE: ${game.bossHp}`;
+        document.getElementById("wave-display").innerText =
+          `WAVE: ${game.wave}`;
+        document.getElementById("score-display").innerText =
+          `KILLS: ${game.score}`;
+      }
+
+      function draw() {
+        ctx.fillStyle = "#0a050f";
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+        const cx = canvas.width / 2;
+        const cy = canvas.height / 2;
+
+        // Draw Pseudo-3D Hallway environment framework wireframes
+        ctx.strokeStyle = "#321c4d";
+        ctx.lineWidth = 2;
+
+        // Back Wall Portal Entry Outline
+        ctx.strokeRect(cx - 50, cy - 30, 100, 60);
+
+        // Structural Wall Corner Beams
+        ctx.beginPath();
+        ctx.moveTo(0, 0);
+        ctx.lineTo(cx - 50, cy - 30);
+        ctx.stroke();
+        ctx.beginPath();
+        ctx.moveTo(0, canvas.height);
+        ctx.lineTo(cx - 50, cy + 30);
+        ctx.stroke();
+        ctx.beginPath();
+        ctx.moveTo(canvas.width, 0);
+        ctx.lineTo(cx + 50, cy - 30);
+        ctx.stroke();
+        ctx.beginPath();
+        ctx.moveTo(canvas.width, canvas.height);
+        ctx.lineTo(cx + 50, cy + 30);
+        ctx.stroke();
+
+        // Render Hero targets (Slowing rendering order from furthest depth down to front camera)
+        let sortedHeroes = [...game.heroes].sort((a, b) => b.z - a.z);
+        sortedHeroes.forEach((h) => {
+          let t = (100 - h.z) / 100; // Depth scale factor calculation maps 0.0 to 1.0
+
+          // Perspective spacing formulas
+          let screenX = cx + h.xOffset * (1 + t * 4);
+          let screenY = cy + 20 + t * 210;
+          let currentSize = h.baseSize * (0.15 + t * 1.85);
+
+          // Drop shadows below incoming targets
+          ctx.fillStyle = "rgba(0, 0, 0, 0.4)";
+          ctx.beginPath();
+          ctx.ellipse(
+            screenX,
+            screenY,
+            currentSize / 1.5,
+            currentSize / 5,
+            0,
+            0,
+            Math.PI * 2,
+          );
+          ctx.fill();
+
+          // Draw standard placeholder round avatar graphic
+          ctx.fillStyle = h.color;
+          ctx.beginPath();
+          ctx.arc(
+            screenX,
+            screenY - currentSize / 2,
+            currentSize / 2,
+            0,
+            Math.PI * 2,
+          );
+          ctx.fill();
+
+          ctx.strokeStyle = "#fff";
+          ctx.lineWidth = Math.max(1, currentSize / 15);
+          ctx.stroke();
+
+          // Draw health status framework overhead indicator layers
+          if (h.z < 95) {
+            let barW = currentSize * 1.2;
+            let barH = Math.max(3, currentSize / 10);
+            ctx.fillStyle = "#401010";
+            ctx.fillRect(
+              screenX - barW / 2,
+              screenY - currentSize - 12,
+              barW,
+              barH,
+            );
+            ctx.fillStyle = "#2ecc71";
+            ctx.fillRect(
+              screenX - barW / 2,
+              screenY - currentSize - 12,
+              barW * (h.hp / h.maxHp),
+              barH,
+            );
+          }
+        });
+
+        // Draw active void blast plasma streaks
+        game.projectiles.forEach((p) => {
+          ctx.strokeStyle = "#bf33ff";
+          ctx.lineWidth = 4;
+          ctx.lineCap = "round";
+          ctx.beginPath();
+          ctx.moveTo(p.currentX, p.currentY);
+          // Draw a small tail line vector representation tracking backwards
+          let tailX = p.currentX - (p.targetX - p.startX) * 0.05;
+          let tailY = p.currentY - (p.targetY - p.startY) * 0.05;
+          ctx.lineTo(tailX, tailY);
+          ctx.stroke();
+        });
+
+        // Draw floating explosion burst elements
+        game.particles.forEach((p) => {
+          ctx.fillStyle = p.color;
+          ctx.globalAlpha = p.alpha;
+          ctx.beginPath();
+          ctx.arc(p.x, p.y, p.radius, 0, Math.PI * 2);
+          ctx.fill();
+        });
+        ctx.globalAlpha = 1.0; // Reset canvas context state configuration modifications
+
+        // Draw UI floating floating hit tracking indicators
+        game.texts.forEach((t) => {
+          ctx.fillStyle = t.color;
+          ctx.globalAlpha = t.alpha;
+          ctx.font = 'bold 14px "Courier New"';
+          ctx.textAlign = "center";
+          ctx.fillText(t.text, t.x, t.y);
+        });
+        ctx.globalAlpha = 1.0;
+
+        // Draw interactive futuristic custom reticle crosshair overlay tracks
+        if (game.active) {
+          ctx.strokeStyle = "#33fff3";
+          ctx.lineWidth = 2;
+
+          // Draw targeting ticks
+          ctx.beginPath();
+          ctx.arc(game.mouseX, game.mouseY, 12, 0, Math.PI * 2);
+          ctx.stroke();
+
+          ctx.beginPath();
+          ctx.moveTo(game.mouseX - 18, game.mouseY);
+          ctx.lineTo(game.mouseX - 6, game.mouseY);
+          ctx.moveTo(game.mouseX + 6, game.mouseY);
+          ctx.lineTo(game.mouseX + 18, game.mouseY);
+          ctx.moveTo(game.mouseX, game.mouseY - 18);
+          ctx.lineTo(game.mouseX, game.mouseY - 6);
+          ctx.moveTo(game.mouseX, game.mouseY + 6);
+          ctx.lineTo(game.mouseX, game.mouseY + 18);
+          ctx.stroke();
+
+          // Core center dot pointer target marker
+          ctx.fillStyle = "#33fff3";
+          ctx.fillRect(game.mouseX - 1, game.mouseY - 1, 2, 2);
+        }
+      }
+
+      // Standard continuous system loop orchestration callbacks
+      function loop() {
+        update();
+        draw();
+        requestAnimationFrame(loop);
+      }
+
+      function resetGame() {
+        game.bossHp = 100;
+        game.score = 0;
+        game.wave = 1;
+        game.heroes = [];
+        game.projectiles = [];
+        game.particles = [];
+        game.texts = [];
+        game.spawnTimer = 0;
+        game.spawnInterval = 120;
+        game.active = true;
+        game.paused = false;
+        game.pendingHit = null;
+        const activeQ = document.getElementById("active-question");
+        if (activeQ) activeQ.remove();
+        gameOverScreen.classList.remove("active");
+      }
+
+      // Initialize execution setup
+      loop();
+    </script>
+  </body>
+</html>
